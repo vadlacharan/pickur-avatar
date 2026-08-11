@@ -66,15 +66,31 @@ export function seedThumbUri(
   return createAvatar(style, { ...baseOptions, seed, size }).toDataUri();
 }
 
-/** The "auto" preview: what the seed produces when this option is left unpinned. */
+/** The "auto" preview: what the seed produces when this feature is left free. */
 export function autoThumbUri(
   style: AnyStyle,
   baseOptions: Options,
   optionKey: string,
+  probabilityKey?: string,
   size = 90,
 ): string {
   const opts: Options = { ...baseOptions, size };
   delete opts[optionKey];
+  if (probabilityKey) delete opts[probabilityKey];
+  return createAvatar(style, opts).toDataUri();
+}
+
+/** The "none" preview: the feature forced off (probability 0). */
+export function noneThumbUri(
+  style: AnyStyle,
+  baseOptions: Options,
+  optionKey: string,
+  probabilityKey: string,
+  size = 90,
+): string {
+  const opts: Options = { ...baseOptions, size };
+  delete opts[optionKey];
+  opts[probabilityKey] = 0;
   return createAvatar(style, opts).toDataUri();
 }
 
@@ -90,42 +106,37 @@ function pick<T>(arr: T[]): T {
 }
 
 /**
- * Randomize = new seed + pin every enum/color option to a random valid value.
- * Probability/integer controls keep whatever value they currently hold so
- * features don't vanish unexpectedly.
+ * Randomize = new seed + a random valid value for every enum/color. Optional
+ * features (those with a linked probability) are randomly either turned off
+ * ("None") or forced on with a random value, so avatars get real variety.
  */
-export function randomizePins(
-  controls: Record<string, Control>,
-  current: Pins,
-): Pins {
+export function randomizePins(controls: Record<string, Control>): Pins {
   const next: Pins = {};
   for (const control of Object.values(controls)) {
     if (control.kind === 'enum' && control.values?.length) {
-      next[control.key] = pick(control.values);
+      if (control.probabilityKey) {
+        if (Math.random() < 0.5) {
+          next[control.probabilityKey] = 0; // None
+        } else {
+          next[control.key] = pick(control.values);
+          next[control.probabilityKey] = control.probabilityMax ?? 100;
+        }
+      } else {
+        next[control.key] = pick(control.values);
+      }
     } else if (control.kind === 'color' && control.palette?.length) {
       next[control.key] = pick(control.palette);
-    } else if (control.key in current) {
-      next[control.key] = current[control.key];
     }
   }
   return next;
 }
 
 /**
- * Reset = clear enum/color pins, restore probability/integer controls to their
- * schema default (so the avatar returns to the style's out-of-the-box look).
+ * Reset = clear every pin, so the avatar returns to the style's out-of-the-box
+ * look (schema defaults + seed decide everything).
  */
-export function defaultPins(controls: Record<string, Control>): Pins {
-  const next: Pins = {};
-  for (const control of Object.values(controls)) {
-    if (
-      (control.kind === 'probability' || control.kind === 'integer') &&
-      typeof control.default === 'number'
-    ) {
-      next[control.key] = control.default;
-    }
-  }
-  return next;
+export function defaultPins(_controls: Record<string, Control>): Pins {
+  return {};
 }
 
 /* ---------------------------------------------------------------------------

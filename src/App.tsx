@@ -89,7 +89,7 @@ export default function App() {
 
   const handleShuffle = useCallback(() => {
     setSeed(randomSeed());
-    setPins((prev) => randomizePins(controls, prev));
+    setPins(randomizePins(controls));
   }, [controls]);
 
   const handleReset = useCallback(() => {
@@ -124,27 +124,22 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          <span className="logo">🎲</span>
-          <div>
-            <h1>Avatar Studio</h1>
-            <span className="tagline">powered by DiceBear · runs offline</span>
-          </div>
-        </div>
+        <h1 className="title">Avatar Studio</h1>
 
-        <label className="style-select">
-          <span>Style</span>
-          <select
-            value={styleKey}
-            onChange={(e) => handleStyleChange(e.target.value as StyleKey)}
-          >
-            {STYLES.map((s) => (
-              <option key={s.key} value={s.key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="style-pills" role="tablist" aria-label="Avatar style">
+          {STYLES.map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              role="tab"
+              aria-selected={styleKey === s.key}
+              className={`style-pill ${styleKey === s.key ? 'is-active' : ''}`}
+              onClick={() => handleStyleChange(s.key)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       <main className="studio">

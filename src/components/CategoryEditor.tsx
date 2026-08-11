@@ -4,6 +4,7 @@ import { humanize } from '../dicebear';
 import {
   thumbUri,
   autoThumbUri,
+  noneThumbUri,
   type Options,
   type PinValue,
   type Pins,
@@ -27,11 +28,10 @@ export default function CategoryEditor({
   onPin,
   onClear,
 }: Props) {
+  // Probability / integer controls are intentionally not rendered — optional
+  // features are driven by the "None" tile inside their enum grid instead.
   const enums = group.controls.filter((c) => c.kind === 'enum');
   const colors = group.controls.filter((c) => c.kind === 'color');
-  const ranges = group.controls.filter(
-    (c) => c.kind === 'probability' || c.kind === 'integer',
-  );
 
   return (
     <div className="editor">
@@ -41,7 +41,7 @@ export default function CategoryEditor({
           control={c}
           style={style}
           options={options}
-          value={typeof pins[c.key] === 'string' ? (pins[c.key] as string) : undefined}
+          pins={pins}
           onPin={onPin}
           onClear={onClear}
         />
@@ -51,22 +51,11 @@ export default function CategoryEditor({
         <ColorRow
           key={c.key}
           control={c}
+          style={style}
+          options={options}
           value={typeof pins[c.key] === 'string' ? (pins[c.key] as string) : undefined}
           onPin={onPin}
           onClear={onClear}
-        />
-      ))}
-
-      {ranges.map((c) => (
-        <ToggleRow
-          key={c.key}
-          control={c}
-          value={
-            typeof pins[c.key] === 'number'
-              ? (pins[c.key] as number)
-              : (c.default as number) ?? c.min ?? 0
-          }
-          onPin={onPin}
         />
       ))}
     </div>
@@ -76,6 +65,117 @@ export default function CategoryEditor({
 /* -------------------------------------------------------------------------- */
 
 function EnumGrid({
+  control,
+  style,
+  options,
+  pins,
+  onPin,
+  onClear,
+}: {
+  control: Control;
+  style: Style<Record<string, unknown>>;
+  options: Options;
+  pins: Pins;
+  onPin: (key: string, value: PinValue) => void;
+  onClear: (key: string) => void;
+}) {
+  const values = control.values ?? [];
+  const probKey = control.probabilityKey;
+  const probMax = control.probabilityMax ?? 100;
+
+  const pinnedValue =
+    typeof pins[control.key] === 'string' ? (pins[control.key] as string) : undefined;
+  const isNone = probKey !== undefined && pins[probKey] === 0;
+  const isAuto = !isNone && pinnedValue === undefined;
+
+  // Value tiles should always *show* the feature, so force it on for previews.
+  const tileBase = useMemo<Options>(
+    () => (probKey ? { ...options, [probKey]: probMax } : options),
+    [options, probKey, probMax],
+  );
+
+  // Rebuild previews only when the surrounding look changes (not when browsing
+  // other categories).
+  const baseSig = useMemo(() => {
+    const clone: Options = { ...options };
+    delete clone[control.key];
+    return JSON.stringify(clone);
+  }, [options, control.key]);
+
+  const autoUri = useMemo(
+    () => autoThumbUri(style, options, control.key, probKey),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [style, control.key, probKey, baseSig],
+  );
+
+  const noneUri = useMemo(
+    () => (probKey ? noneThumbUri(style, options, control.key, probKey) : ''),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [style, control.key, probKey, baseSig],
+  );
+
+  const tiles = useMemo(
+    () => values.map((v) => ({ v, uri: thumbUri(style, tileBase, control.key, v) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [style, control.key, baseSig, values, probKey, probMax],
+  );
+
+  const selectAuto = () => {
+    onClear(control.key);
+    if (probKey) onClear(probKey);
+  };
+  const selectNone = () => {
+    onClear(control.key);
+    if (probKey) onPin(probKey, 0);
+  };
+  const selectValue = (v: string) => {
+    onPin(control.key, v);
+    if (probKey) onPin(probKey, probMax);
+  };
+
+  return (
+    <section className="enum-block">
+      <h3 className="block-title">{control.label}</h3>
+      <div className="grid">
+        <button
+          type="button"
+          className={`tile tile-tag ${isAuto ? 'is-selected' : ''}`}
+          title="Auto — let Shuffle decide"
+          onClick={selectAuto}
+        >
+          <img src={autoUri} alt="Auto" loading="lazy" />
+          <span className="tile-cap">🎲 Auto</span>
+        </button>
+
+        {probKey && (
+          <button
+            type="button"
+            className={`tile tile-tag ${isNone ? 'is-selected' : ''}`}
+            title="None — hide this feature"
+            onClick={selectNone}
+          >
+            <img src={noneUri} alt="None" loading="lazy" />
+            <span className="tile-cap">🚫 None</span>
+          </button>
+        )}
+
+        {tiles.map(({ v, uri }) => (
+          <button
+            key={v}
+            type="button"
+            className={`tile ${pinnedValue === v && !isNone ? 'is-selected' : ''}`}
+            title={humanize(v)}
+            onClick={() => (pinnedValue === v && !isNone ? selectAuto() : selectValue(v))}
+          >
+            <img src={uri} alt={v} loading="lazy" />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ColorRow({
   control,
   style,
   options,
@@ -90,10 +190,12 @@ function EnumGrid({
   onPin: (key: string, value: PinValue) => void;
   onClear: (key: string) => void;
 }) {
-  const values = control.values ?? [];
+  const palette = control.palette ?? [];
+  const isTransparent = value === 'transparent';
+  const isCustom =
+    value !== undefined && value !== 'transparent' && !palette.includes(value);
+  const colorInputValue = isCustom ? `#${value}` : '#cc785c';
 
-  // Regenerate previews only when the base look (everything except this option)
-  // or the option key changes, so browsing other categories doesn't rebuild.
   const baseSig = useMemo(() => {
     const clone: Options = { ...options };
     delete clone[control.key];
@@ -105,12 +207,15 @@ function EnumGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [style, control.key, baseSig],
   );
-
-  const tiles = useMemo(
-    () =>
-      values.map((v) => ({ v, uri: thumbUri(style, options, control.key, v) })),
+  const transparentUri = useMemo(
+    () => (control.allowsTransparent ? thumbUri(style, options, control.key, 'transparent') : ''),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [style, control.key, baseSig, values],
+    [style, control.key, baseSig, control.allowsTransparent],
+  );
+  const tiles = useMemo(
+    () => palette.map((hex) => ({ hex, uri: thumbUri(style, options, control.key, hex) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [style, control.key, baseSig, palette],
   );
 
   return (
@@ -119,123 +224,54 @@ function EnumGrid({
       <div className="grid">
         <button
           type="button"
-          className={`tile tile-auto ${value === undefined ? 'is-selected' : ''}`}
-          title="Auto — let the shuffle decide"
+          className={`tile tile-tag ${value === undefined ? 'is-selected' : ''}`}
+          title="Auto — let Shuffle decide"
           onClick={() => onClear(control.key)}
         >
           <img src={autoUri} alt="Auto" loading="lazy" />
           <span className="tile-cap">🎲 Auto</span>
         </button>
 
-        {tiles.map(({ v, uri }) => (
-          <button
-            key={v}
-            type="button"
-            className={`tile ${value === v ? 'is-selected' : ''}`}
-            title={humanize(v)}
-            onClick={() => (value === v ? onClear(control.key) : onPin(control.key, v))}
-          >
-            <img src={uri} alt={v} loading="lazy" />
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ColorRow({
-  control,
-  value,
-  onPin,
-  onClear,
-}: {
-  control: Control;
-  value: string | undefined;
-  onPin: (key: string, value: PinValue) => void;
-  onClear: (key: string) => void;
-}) {
-  const palette = control.palette ?? [];
-  const isTransparent = value === 'transparent';
-  const colorInputValue = value && value !== 'transparent' ? `#${value}` : '#cc785c';
-
-  return (
-    <section className="color-block">
-      <h3 className="block-title">{control.label}</h3>
-      <div className="swatch-row">
-        {palette.map((hex) => (
-          <button
-            key={hex}
-            type="button"
-            className={`swatch ${value === hex ? 'is-selected' : ''}`}
-            style={{ background: `#${hex}` }}
-            title={`#${hex}`}
-            onClick={() => (value === hex ? onClear(control.key) : onPin(control.key, hex))}
-          />
-        ))}
-
         {control.allowsTransparent && (
           <button
             type="button"
-            className={`swatch swatch-transparent ${isTransparent ? 'is-selected' : ''}`}
-            title="transparent"
+            className={`tile tile-checker tile-tag ${isTransparent ? 'is-selected' : ''}`}
+            title="None — transparent"
             onClick={() =>
               isTransparent ? onClear(control.key) : onPin(control.key, 'transparent')
             }
-          />
+          >
+            <img src={transparentUri} alt="None" loading="lazy" />
+            <span className="tile-cap">🚫 None</span>
+          </button>
         )}
 
-        <label className="swatch swatch-custom" title="Custom colour">
+        {tiles.map(({ hex, uri }) => (
+          <button
+            key={hex}
+            type="button"
+            className={`tile tile-color ${value === hex ? 'is-selected' : ''}`}
+            title={`#${hex}`}
+            onClick={() => (value === hex ? onClear(control.key) : onPin(control.key, hex))}
+          >
+            <img src={uri} alt={hex} loading="lazy" />
+            <span className="tile-chip" style={{ background: `#${hex}` }} aria-hidden />
+          </button>
+        ))}
+
+        <label
+          className={`tile tile-custom ${isCustom ? 'is-selected' : ''}`}
+          title="Custom colour"
+        >
           <input
             type="color"
             value={colorInputValue}
             onChange={(e) => onPin(control.key, e.target.value.replace('#', ''))}
           />
-          <span>+</span>
+          <span className="tile-plus">+</span>
+          <span className="tile-cap">Custom</span>
         </label>
       </div>
-    </section>
-  );
-}
-
-function ToggleRow({
-  control,
-  value,
-  onPin,
-}: {
-  control: Control;
-  value: number;
-  onPin: (key: string, value: PinValue) => void;
-}) {
-  const min = control.min ?? 0;
-  const max = control.max ?? 100;
-  const isProbability = control.kind === 'probability';
-  const on = value > min;
-
-  return (
-    <section className="range-block">
-      <div className="range-head">
-        <h3 className="block-title">{control.label}</h3>
-        {isProbability ? (
-          <button
-            type="button"
-            className={`switch ${on ? 'is-on' : ''}`}
-            role="switch"
-            aria-checked={on}
-            onClick={() => onPin(control.key, on ? 0 : 100)}
-          >
-            <span className="switch-knob" />
-          </button>
-        ) : (
-          <span className="range-value">{value}</span>
-        )}
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onPin(control.key, Number(e.target.value))}
-      />
     </section>
   );
 }

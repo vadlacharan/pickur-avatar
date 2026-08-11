@@ -53,6 +53,14 @@ export interface Control {
   max?: number;
   /** The schema default (used by Reset and as the slider starting point). */
   default?: unknown;
+  /**
+   * enum only: the key of the linked `…Probability` option, if the feature is
+   * optional. Its presence means the grid should offer a "None" tile that hides
+   * the feature (probability 0) instead of exposing a probability control.
+   */
+  probabilityKey?: string;
+  /** enum only: the probability value that forces the feature to always show. */
+  probabilityMax?: number;
 }
 
 export interface ControlGroup {
@@ -165,6 +173,15 @@ export function parseSchema(schema: JSONSchema7 | undefined): ControlGroup[] {
 
   for (const g of groups.values()) {
     g.controls.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+
+    // Link an optional feature's probability to its enum so the grid can offer
+    // a "None" tile. The probability itself is no longer rendered as a control.
+    const prob = g.controls.find((c) => c.kind === 'probability');
+    const firstEnum = g.controls.find((c) => c.kind === 'enum');
+    if (prob && firstEnum) {
+      firstEnum.probabilityKey = prob.key;
+      firstEnum.probabilityMax = typeof prob.max === 'number' ? prob.max : 100;
+    }
   }
 
   return order.map((r) => groups.get(r)!);
